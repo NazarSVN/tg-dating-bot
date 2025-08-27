@@ -1,16 +1,16 @@
 import asyncio
 from aiogram import Bot, Dispatcher
 from config import TELEGRAM_TOKEN
-from handlers import start, registration, photo
+from handlers import start, registration, photo, menu, profile
 from database.models import init_db
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# Подключение роутеров
 dp.include_router(start.router)
 dp.include_router(registration.router)
 dp.include_router(photo.router)
+dp.include_router(menu.router)
 
 async def main():
     await dp.start_polling(bot)

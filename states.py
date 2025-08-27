@@ -9,3 +9,4 @@ class Form(StatesGroup):
     name = State()
     bio = State()
     photos = State()
+    preview = State()  

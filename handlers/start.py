@@ -7,7 +7,6 @@ from states import Form
 from aiogram.types import ReplyKeyboardRemove
 from handlers.registration import start_registration
 
-
 router = Router()
 
 # --- Меню ReplyKeyboard ---
@@ -75,7 +74,7 @@ async def choose_language(message: Message):
                                      "Français 🇫🇷", "Italiano 🇮🇹", "Polski 🇵🇱", "Türkçe 🇹🇷"])
 async def language_selected(message: Message):
     await message.answer(
-        "Вже мільйони людей знайомляться в Дайвінчику 😍\n\n"
+        "Вже мільйони людей знайомляться в телеграмі 😍\n\n"
         "Я допоможу знайти тобі пару або просто друзів 👫",
         reply_markup=start_menu()
     )

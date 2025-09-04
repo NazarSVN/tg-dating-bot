@@ -11,6 +11,7 @@ dp.include_router(start.router)
 dp.include_router(registration.router)
 dp.include_router(photo.router)
 dp.include_router(menu.router)
+dp.include_router(profile.router)
 
 async def main():
     await dp.start_polling(bot)

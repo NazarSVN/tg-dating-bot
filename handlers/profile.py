@@ -1,16 +1,15 @@
 import os
 from aiogram import Router
-from aiogram.types import Message, FSInputFile
-from database.models import get_next_profile, preload_profiles
-from handlers.keyboards import end_of_profiles_menu 
+from aiogram.types import Message, FSInputFile, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-
+from database.models import get_next_profile, preload_profiles
+from handlers.keyboards import end_of_profiles_menu, browse_menu
+from aiogram.types import ReplyKeyboardRemove
+from aiogram import F
 
 router = Router()
 
 async def show_profile_preview(message: Message, state: FSMContext):
-    # Отримуємо дані з FSM
     data = await state.get_data()
     name = data.get("name", "Не вказано")
     age = data.get("age", "Не вказано")
@@ -20,7 +19,6 @@ async def show_profile_preview(message: Message, state: FSMContext):
     bio = data.get("bio", "Не вказано")
     photos = data.get("photos", [])
 
-    # Формуємо текст анкети
     text = (
         f"📋 Перевір свою анкету:\n\n"
         f"👤 Ім'я: {name}\n"
@@ -31,10 +29,8 @@ async def show_profile_preview(message: Message, state: FSMContext):
         f"📝 Bio: {bio}\n"
         f"📸 Фото: {len(photos)} шт."
     )
-
     await message.answer(text)
 
-    # Відправляємо всі фото
     for photo_path in photos:
         if os.path.exists(photo_path):
             file = FSInputFile(photo_path)
@@ -42,7 +38,6 @@ async def show_profile_preview(message: Message, state: FSMContext):
         else:
             await message.answer(f"❌ Не вдалося знайти файл: {photo_path}")
 
-    # Кнопка "Це все, зберегти"
     kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="✅ Це все, зберегти")]],
         resize_keyboard=True,
@@ -53,6 +48,8 @@ async def show_profile_preview(message: Message, state: FSMContext):
 
 async def send_next_profile(message: Message, user_id: int) -> int | None:
     from database.models import _browse_cache, _browse_index
+    
+    await message.answer("🔄 Завантаження наступного профілю...", reply_markup=ReplyKeyboardRemove())
 
     if not _browse_cache.get(user_id) or _browse_index.get(user_id, 0) >= len(_browse_cache.get(user_id, [])):
         profiles = preload_profiles(user_id)
@@ -78,14 +75,21 @@ async def send_next_profile(message: Message, user_id: int) -> int | None:
             photo=photo_input,
             caption=caption,
             parse_mode="Markdown",
-            reply_markup=end_of_profiles_menu  # клавіатура знизу
+            reply_markup=browse_menu
         )
     else:
         await message.answer(
             caption,
             parse_mode="Markdown",
-            reply_markup=end_of_profiles_menu  # клавіатура знизу
+            reply_markup=browse_menu
         )
 
-    # Повертаємо ID показаного профілю, щоб зберегти в FSM
     return profile["user_id"]
+
+@router.message(F.text.contains("Вийти з перегляду"))
+async def exit_browsing(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer(
+        "Ви вийшли з перегляду анкет ✅",
+        reply_markup=end_of_profiles_menu  # або ReplyKeyboardRemove() якщо хочеш просто сховати
+    )

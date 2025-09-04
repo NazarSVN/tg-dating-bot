@@ -4,6 +4,7 @@ from aiogram.types import Message, FSInputFile, ReplyKeyboardMarkup, KeyboardBut
 from aiogram.fsm.context import FSMContext
 from states import Form
 from database.models import save_user, preload_profiles, get_next_profile, record_like, check_mutual_like
+from handlers.profile import send_next_profile
 
 router = Router()
 os.makedirs("media/users", exist_ok=True)
@@ -71,15 +72,34 @@ async def like_profile(message: Message, state: FSMContext):
         return
 
     record_like(message.from_user.id, liked_user_id)
+
+    # Отримуємо юзера з БД
+    from database.models import get_user
+    liked_user = get_user(liked_user_id)
+
+    if liked_user:
+        username = liked_user.get("username")
+        name = liked_user.get("name", "Користувач")
+
+        if username:
+            link = f"[{name} (@{username})](https://t.me/{username})"
+        else:
+            link = f"[{name}](tg://user?id={liked_user_id})"
+    else:
+        link = f"[користувачем](tg://user?id={liked_user_id})"
+
     if check_mutual_like(message.from_user.id, liked_user_id):
-        await message.answer(f"🎉 У тебе взаємний лайк з користувачем {liked_user_id}!", reply_markup=profile_menu)
+        await message.answer(
+            f"🎉 У тебе взаємний лайк з {link}!",
+            reply_markup=profile_menu,
+            parse_mode="Markdown"
+        )
     else:
         await message.answer("Лайк поставлено ✅", reply_markup=profile_menu)
 
     next_profile_id = await send_next_profile(message, message.from_user.id)
     if next_profile_id:
         await state.update_data(current_profile_id=next_profile_id)
-
 
 # --- Пропустити профіль ---
 @router.message(lambda m: m.text == "➡️ Пропустити")
@@ -124,9 +144,18 @@ async def save_photos(message: Message, state: FSMContext):
     if not data.get("photos"):
         await message.answer("❗️ Треба додати хоча б одне фото.", reply_markup=profile_menu)
         return
+
+    # ✅ зберігаємо у базу
+    save_user(message.from_user.id, data)
+
     await show_profile_preview(message, state)
+    await state.clear()  # можна очистити FSM, якщо анкету завершено
 
-
+    from handlers.keyboards import end_of_profiles_menu
+    await message.answer(
+        "✅ Анкету збережено. Тепер можна дивитися інших користувачів 👇",
+        reply_markup=end_of_profiles_menu
+    )
 # --- Редагування анкети ---
 @router.message(lambda m: m.text == "✏️ Змінити анкету")
 async def edit_profile(message: Message, state: FSMContext):
@@ -138,30 +167,12 @@ async def edit_profile(message: Message, state: FSMContext):
     await message.answer("📸 Надішли нові фото або відео (до 3), або натисни кнопку «Взяти з мого профілю телеграм».", reply_markup=profile_menu)
     await state.set_state(Form.photos)
 
-
 # --- Підтвердження анкети ---
 @router.message(lambda m: m.text == "✅ Так")
 async def confirm_profile(message: Message, state: FSMContext):
     data = await state.get_data()
     save_user(message.from_user.id, data)
-    await message.answer("🎉 Твій профіль підтверджено! Можеш починати знайомства.", reply_markup=profile_menu)
     await state.clear()
-    await message.answer("Хочеш переглянути інших користувачів?", reply_markup=profile_menu)
+    from handlers.keyboards import end_of_profiles_menu
+    await message.answer("🎉 Твій профіль підтверджено! Можеш починати знайомства.", reply_markup=end_of_profiles_menu)
 
-
-# --- Наступна анкета ---
-async def send_next_profile(message: Message, user_id: int) -> int | None:
-    profile = get_next_profile(user_id)
-    if not profile:
-        await message.answer("😕 Анкети закінчилися.", reply_markup=profile_menu)
-        return None
-
-    caption = f"*{profile['name']}*, {profile['age']}, {profile['city']}\n{profile.get('bio', '')}"
-    photos = profile.get("photos", [])
-    if photos and os.path.exists(photos[0]):
-        photo_input = FSInputFile(photos[0])
-        await message.answer_photo(photo=photo_input, caption=caption, parse_mode="Markdown", reply_markup=profile_menu)
-    else:
-        await message.answer(caption, parse_mode="Markdown", reply_markup=profile_menu)
-
-    return profile["user_id"]

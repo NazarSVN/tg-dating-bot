@@ -15,6 +15,7 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
+            username TEXT,
             name TEXT,
             age INTEGER,
             gender TEXT,
@@ -42,8 +43,9 @@ def save_user(user_id: int, data: dict):
     cursor = conn.cursor()
 
     cursor.execute('''
-        INSERT OR REPLACE INTO users (user_id, name, age, gender, preference, city, phone, bio, photos)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO users (
+            user_id, name, age, gender, preference, city, phone, bio, photos, username
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         user_id,
         data.get("name"),
@@ -53,11 +55,42 @@ def save_user(user_id: int, data: dict):
         data.get("city"),
         data.get("phone"),
         data.get("bio"),
-        json.dumps(data.get("photos", []))
+        json.dumps(data.get("photos", []), ensure_ascii=False),
+        data.get("username"),
     ))
 
     conn.commit()
     conn.close()
+
+def get_user(user_id: int) -> dict | None:
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    # колонки в тій же послідовності, що й в таблиці
+    columns = [
+        "user_id", "name", "age", "gender", "preference",
+        "city", "phone", "bio", "photos", "username"
+    ]
+
+    user = dict(zip(columns, row))
+
+    # photos зберігаються як json → треба розпарсити
+    if user.get("photos"):
+        try:
+            user["photos"] = json.loads(user["photos"])
+        except Exception:
+            user["photos"] = []
+    else:
+        user["photos"] = []
+
+    return user
 
 def preload_profiles(user_id: int):
     conn = get_connection()

@@ -7,6 +7,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from utils.location import validate_city  
 from handlers.profile import show_profile_preview
 from database.models import save_user
+from handlers.profile import send_next_profile
+from utils.location import coords_to_city
 
 import os
 
@@ -14,26 +16,46 @@ router = Router()
 
 photo_registration_kb = InlineKeyboardMarkup(
     inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Це все, зберегти фото", callback_data="save_photos")],
         [InlineKeyboardButton(text="📷 Взяти з мого профілю", callback_data="use_profile_photo")]
     ]
 )
 
 # --- Старт реєстрації ---
 async def start_registration(message: Message, state: FSMContext):
+    if not message.from_user.username:
+        await message.answer(
+            "❌ У тебе не встановлений @username у Telegram.\n\n"
+            "Будь ласка, додай його в налаштуваннях Telegram і спробуй ще раз."
+        )
+        return
+    
     await message.answer("Скільки тобі років? (від 14 до 60)", reply_markup=ReplyKeyboardRemove())
     await state.set_state(Form.age)
 
 @router.message(lambda m: m.text == "✅ Це все, зберегти")
 async def save_profile(message: Message, state: FSMContext):
-    data = await state.get_data()  
-    await save_user(message.from_user.id, data)  
+    if not message.from_user.username:
+        await message.answer(
+            "❌ У тебе не встановлений @username у Telegram.\n\n"
+            "Будь ласка, додай його в налаштуваннях Telegram і пройди реєстрацію ще раз."
+        )
+        return
 
+    data = await state.get_data()
+    data["username"] = message.from_user.username   
+    save_user(message.from_user.id, data)           
+    
     await state.clear()
 
     await message.answer(
         "✅ Твоя анкета успішно збережена!\n"
-        "Тепер можеш переглядати анкети інших користувачів.")
+        "Тепер можеш переглядати анкети інших користувачів."
+    )
+    next_profile_id = await send_next_profile(message, message.from_user.id)
+
+    if next_profile_id:
+        await state.update_data(current_profile_id=next_profile_id)
+
 
 
 @router.message(Form.age)
@@ -96,7 +118,11 @@ async def handle_preference(message: Message, state: FSMContext):
 async def handle_location(message: Message, state: FSMContext):
     if message.location:
         lat, lon = message.location.latitude, message.location.longitude
-        await state.update_data(city=f"Координати: {lat:.4f}, {lon:.4f}")
+        city = coords_to_city(lat, lon)
+        if not city:
+            await message.answer("❌ Не вдалося визначити місто. Спробуй ще раз або введи вручну.")
+            return
+        await state.update_data(city=city)
     else:
         city_raw = message.text.strip()
         if not city_raw or len(city_raw) < 2:
@@ -113,10 +139,13 @@ async def handle_location(message: Message, state: FSMContext):
         resize_keyboard=True, one_time_keyboard=True
     )
     await message.answer(
-        "Мені потрібен твій номер телефону для підтвердження анкети. Інші користувачі його не побачать.",
+        f"📍 Твоє місто визначено як: *{city}*\n\n"
+        "Тепер надішли номер телефону для підтвердження анкети.",
+        parse_mode="Markdown",
         reply_markup=kb
     )
     await state.set_state(Form.phone)
+
 
 @router.message(Form.phone)
 async def handle_phone(message: Message, state: FSMContext):
@@ -183,7 +212,7 @@ async def handle_bio(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "send_media")
 async def handle_send_media(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Надішли фото або відео (до 15 сек).")
+    await callback.message.answer("Надішли фото або відео (до 15 сек). Або встанови з профілю (нижча якість)")
     await state.set_state(Form.photos)
 
 @router.callback_query(F.data == "use_profile_photo")
@@ -195,7 +224,7 @@ async def handle_use_profile_photo(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("❌ У тебе немає фото профілю.")
         return
 
-    photo = profile_photos.photos[0][0]
+    photo = profile_photos.photos[0][-1]
     file = await callback.bot.get_file(photo.file_id)
 
     user_dir = f"media/users/{user_id}"
@@ -232,7 +261,7 @@ async def use_profile_photo(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("❌ У тебе немає фото профілю.")
         return
 
-    photo = profile_photos.photos[0][-1]
+    photo = profile_photos.photos[0][0]
     file = await callback.bot.get_file(photo.file_id)
 
     user_dir = f"media/users/{user_id}"

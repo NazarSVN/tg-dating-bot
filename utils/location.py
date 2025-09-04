@@ -1,5 +1,7 @@
 import aiohttp
 from config import GOOGLE_API_KEY
+import requests
+import os
 
 ALLOWED_COUNTRIES = {
     "AL", "AD", "AT", "BA", "BE", "BG", "CH", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR",
@@ -7,6 +9,30 @@ ALLOWED_COUNTRIES = {
     "NL", "NO", "PL", "PT", "RO", "RS", "SE", "SI", "SK", "SM", "UA", "VA", "XK", "CA", "TR",
     "UK", "US", "BR"
 }
+
+def coords_to_city(lat: float, lon: float) -> str | None:
+    url = "https://maps.googleapis.com/maps/api/geocode/json"
+    params = {
+        "latlng": f"{lat},{lon}",
+        "key": GOOGLE_API_KEY,
+        "language": "uk"
+    }
+    r = requests.get(url, params=params)
+    if r.status_code != 200:
+        return None
+
+    data = r.json()
+    if data.get("status") != "OK":
+        return None
+
+    for component in data["results"][0]["address_components"]:
+        if "locality" in component["types"]:
+            return component["long_name"]
+        if "administrative_area_level_1" in component["types"]:
+            return component["long_name"]
+
+    return None
+
 
 async def validate_city(city_name: str) -> str | None:
     async with aiohttp.ClientSession() as session:
